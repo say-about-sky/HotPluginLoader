@@ -1,5 +1,18 @@
 # HotPluginLoader —— 主菜单「插件」入口 + 外部 dex 热加载(宿主插件)
 
+> **简介**:给《Age of History 3》用的**热加载宿主** —— 主菜单多一个「插件/附加包」入口,
+> 扫描 `hotplugins\` 下的 `.dex/.zip/.jar`,运行时加载 / 启停 / 重载,不用重打 APK
+> (安卓端内置 D8,能把 jar 自动转 dex 并生成清单)。
+>
+> **快速开始**:① `gradlew.bat shadowJar` → ② `build\libs\HotPluginLoader-0.2.0.jar` →
+> ③ 桌面放 `mods\<mod>\plugins\`;安卓用 loader 的 `--launch-mode patch` 出 dex 后合并进 APK。
+> **依赖**(不进版本库):JDK 11+、`game.jar`、`android.jar`、`d8.jar`、`loader-1.6.0.jar`(详见下文「构建」)。
+> **许可**:GPL-3.0,见 `LICENSE.TXT`。
+> **隐私**:纯本地运行,不联网、不收集不上报任何数据;日志只写本地 `hotplugins\hotloader.log`。
+> 插件属于第三方代码,请只安装可信来源的插件。
+>
+> 设计/能力边界与逐版本记录见下文。
+
 > 参考 `LoaderSettings\LongPressMoveArmy` 的工程与验证流程(同一套构建/出 dex/合并管线)。
 > 设计文档:`..\热加载插件系统设计.md`(能力边界 / 加载流程 / §9 审计结论)。
 > 演示热插件工程:`..\HotPluginDemo`(模板 + `build-hotdex.bat` 一键出 dex)。
