@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Class-Path: android.jar finality-api-0.1.0.jar game.jar gdx-android-stub
+ s.jar loader-1.6.0.jar
+

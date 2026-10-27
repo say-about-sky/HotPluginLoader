@@ -1,0 +1,13 @@
+{
+  "id": "com.saysky.hotplugloader",
+  "name": "Hot Plugin Loader",
+  "version": "0.2.0",
+  "sdkVersion": ">=1.5.0",
+  "mainClass": "com.saysky.hotplugloader.HotPluginLoaderPlugin",
+  "hasTweaker": false,
+  "useLuminosity": true,
+  "tweakClasses": [
+    "com.saysky.hotplugloader.mixin.MixinButton"
+  ],
+  "supportedPlatform": [ "desktop", "android" ]
+}

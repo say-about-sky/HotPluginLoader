@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'com.saysky'
+version = '0.2.0'
+
+repositories {
+    maven { url 'https://maven.aliyun.com/repository/public' }
+    mavenCentral()
+}
+
+dependencies {
+    // libs 目录:
+    //   loader-1.6.0.jar        —— 框架运行时(FinalityLogger、luminosity2 注解、CallbackInfo)
+    //   game.jar                —— 游戏本体类(菜单/MainMenu/按钮等)
+    //   finality-api-0.1.0.jar  —— Finality API(Plugin 基类)
+    //   android.jar / gdx-android-stubs.jar —— 编译期平台类(见 .tools\stubs)
+    // 使用 shadow 配置,避免 shadowJar 将以上 jar 打包进插件产物。
+    shadow fileTree(dir: 'libs', includes: ['*.jar'], excludes: ['d8.jar'])
+
+    // 内置 D8(b12:转换器与加载器合并为一个库)—— 载荷,必须打进产物,
+    // 随补丁 dex(game.dex.zip)一起发布;此后不再需要单独安装「D8 转换器」。
+    implementation files('libs/d8.jar')
+}
+
+java {
+    // 目标运行环境为安卓(含游戏自带 JRE/安卓运行时),统一编译为 Java 8 字节码
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+jar { enabled = false }
+shadowJar { archiveClassifier.set("") }
