@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# Local build outputs / caches: never commit (they also embed absolute paths).
+# ---------------------------------------------------------------------------
+build/
+bin/
+out/
+.gradle/
+
+# compiled / packaged artifacts
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE / local environment
+.idea/
+*.iml
+local.properties
+
+# logs
+*.log

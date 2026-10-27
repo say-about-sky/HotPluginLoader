@@ -325,11 +325,15 @@ b16 起**单 dex 直出**:产物直接落 `dex\<同名>.dex`(不再打 zip);多 
 ## 构建(本工程)
 
 ```
-set JAVA_HOME=<JDK11 路径,如 C:\Program Files\Microsoft\jdk-11.0.16.101-hotspot>
+set JAVA_HOME=<JDK11 路径,如 %JAVA_HOME%>
 gradlew.bat shadowJar
 ```
 
 产物:`build\libs\HotPluginLoader-0.2.0.jar`。
+
+> **前置依赖(不进版本库)**:`libs\` 下的 `game.jar`、`android.jar`、`d8.jar`、`loader-1.6.0.jar`、
+> `finality-api-0.1.0.jar`、`gdx-android-stubs.jar` 需自行准备(分别来自游戏本体 / Android SDK /
+> R8 / Finality loader)。`libs\`、`build\`、`bin\`、`.gradle\` 均已在 `.gitignore` 中排除。
 
 ## 安装
 
