@@ -355,6 +355,9 @@ gradlew.bat shadowJar
 
 ### 构建加速（国内网络）
 
+- **JDK：构建需要 JDK 11+**（载荷 r8 8.6.x 的 class 文件版本是 55.0，JDK 8 的 javac 会报“类文件具有错误的版本 55.0，应为 52.0”）。
+  `build.gradle` 自己找 JDK：`-PjdkHome=` > `AOH_JDK` > `JAVA_HOME` > `Program Files\{Microsoft,Java,...}\jdk-*`（取刚好 ≥11 的最小版本），
+  所以 **IDEA 里 Gradle JVM 指向 JDK 8 也能构建**（自动 fork JDK 11 的 javac、用 JDK 11 跑 loader 出 dex）。
 - 镜像顺序写在 `settings.gradle` 的 `pluginManagement` + `build.gradle` 的 `repositories` 里：
   阿里云 `gradle-plugin` → 阿里云 `public` → 阿里云 `google` → 华为云 → `mavenCentral()`（兜底）→ JitPack（仅 loader 本体）。
   实测：阿里云 gdx 9.3 MB/s、华为 5.6 MB/s、Maven Central 0.2 MB/s；Gradle Plugin Portal 单个 POM 1.9 s，阿里云 0.14 s。

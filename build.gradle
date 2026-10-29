@@ -87,13 +87,71 @@ dependencies {
 }
 
 java {
-    // 目标运行环境为安卓(含游戏自带 JRE/安卓运行时),统一编译为 Java 8 字节码
+    // 产物是 Java 8 字节码（游戏/安卓运行时目标）
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
 }
 
+// ---------------------------------------------------------------------------
+// JDK 11+ 发现（r8 8.6.x 的 class 文件版本是 55.0，JDK 8 的 javac 会报
+// “类文件具有错误的版本 55.0, 应为 52.0”）
+//   IDEA 的 Gradle JVM 经常是 JDK 8；Gradle 工具链在那种情况下又找不到 11，
+//   所以这里自己找并 fork 指定的 javac，不依赖 toolchain / IDEA 设置。
+//   顺序：-PjdkHome= > AOH_JDK > JAVA_HOME > Program Files 下的各个 JDK
+// ---------------------------------------------------------------------------
+def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+def jdkExe = { File home, String tool -> new File(home, "bin/${tool}${isWindows ? '.exe' : ''}") }
+def isJdk = { File home -> home != null && jdkExe(home, 'javac').exists() }
+def jdkMajorOf = { File home ->
+    def rel = new File(home, 'release')
+    if (rel.exists()) {
+        def m = rel.text =~ /JAVA_VERSION="(\d+)/
+        if (m.find()) return m.group(1) as int
+    }
+    return 0
+}
+def findJdk = { int minMajor ->
+    def found = []
+    def add = { String p -> if (p) { def f = file(p); if (isJdk(f)) found << f } }
+    add(findProperty('jdkHome') as String)
+    add(System.getenv('AOH_JDK'))
+    add(System.getenv('JAVA_HOME'))
+    ['C:/Program Files/Microsoft', 'C:/Program Files/Java', 'C:/Program Files/Eclipse Adoptium',
+     'C:/Program Files/AdoptOpenJDK', 'C:/Program Files/Zulu', 'C:/Program Files/Amazon Corretto',
+     'C:/Program Files/BellSoft', 'C:/Program Files/Android/Android Studio/jbr'].each { base ->
+        def d = file(base)
+        if (d.isDirectory()) d.listFiles()?.each { sub -> if (isJdk(sub)) found << sub }
+    }
+    // C:\Program Files\Java\latest\jdk-25 这类两层结构
+    found.collect().each { j ->
+        if (j.isDirectory()) j.listFiles()?.each { sub -> if (isJdk(sub)) found << sub }
+    }
+    found.unique().findAll { jdkMajorOf(it) >= minMajor }
+            .sort { a, b -> jdkMajorOf(a) <=> jdkMajorOf(b) }
+            .find()
+}
+def currentJvmMajor = {
+    def m = System.getProperty('java.version') =~ /^(\d+)/
+    m.find() ? (m.group(1) as int) : 0
+}()
+def jdk11Home = (currentJvmMajor >= 11 && isJdk(file(System.getProperty('java.home'))))
+        ? file(System.getProperty('java.home')) : findJdk(11)
+
+logger.info("compile jvm: ${System.getProperty('java.version')} / jdk11: ${jdk11Home}")
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    if (currentJvmMajor < 11) {
+        if (jdk11Home == null) {
+            doFirst {
+                throw new GradleException("编译需要 JDK 11+（r8 载荷的 class 文件是 55.0）。\n" +
+                        "  装一个 JDK 11，或用 -PjdkHome=<JDK目录> / 环境变量 AOH_JDK、JAVA_HOME 指定。")
+            }
+        } else {
+            options.fork = true
+            options.forkOptions.executable = jdkExe(jdk11Home, 'javac').absolutePath
+        }
+    }
 }
 
 jar { enabled = false }
@@ -110,8 +168,8 @@ shadowJar {
 // ---------------------------------------------------------------------------
 def dexOutDir = file("$projectDir/out")
 def dexWorkDir = file("$buildDir/patch")
-def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
-def javaExe = new File(System.getProperty('java.home'), "bin/java" + (isWindows ? '.exe' : ''))
+// 出 dex 同样需要 JDK 11+：复用上面找到的 jdk11Home（不跟着 IDEA 的 Gradle JVM 走）
+def dexJavaHome = jdk11Home ?: file(System.getProperty('java.home'))
 
 def toForwardSlash = { File f -> f.absolutePath.replace('\\', '/') }
 def relTo = { File baseDir, File target ->
@@ -171,6 +229,13 @@ tasks.register('dex') {
         if (produced.exists()) produced.delete()
 
         logger.lifecycle("[dex] loader: ${loaderJar.name}")
+        def javaExe = jdkExe(dexJavaHome, 'java')
+        if (!javaExe.exists() || (!isJdk(dexJavaHome) && currentJvmMajor < 11)) {
+            throw new GradleException("需要 JDK 11+ 来出 dex。\n" +
+                    "  装一个 JDK 11，或用 -PjdkHome=<JDK目录> / AOH_JDK 指定；" +
+                    "当前 Gradle JVM: ${System.getProperty('java.home')}")
+        }
+        logger.lifecycle("[dex] java: ${javaExe.absolutePath}")
         def pb = new ProcessBuilder(javaExe.absolutePath, '-jar', loaderJar.absolutePath,
                 '--launch-mode', 'patch', '--patch-config', cfgFile.absolutePath)
         pb.directory(dexWorkDir)
