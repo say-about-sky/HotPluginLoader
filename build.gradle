@@ -22,46 +22,55 @@ repositories {
 }
 
 // ---------------------------------------------------------------------------
-// 本地路径：优先环境变量，其次 -P 参数，最后自动推断。
-//   game.jar    —— 游戏本体类，不可再分发，需自备(默认取本工程上一级)
-//   android.jar —— Android 平台类，从本机 SDK 读取
+// 本地路径解析(全部在 Gradle 内完成,无外部脚本)
+//   环境变量优先:  AOH_GAME_ROOT / ANDROID_HOME (或 ANDROID_SDK_ROOT) / JAVA_HOME
+//   -P 覆盖:       -PgameRoot= -PandroidSdk= -PandroidJar= -Pd8Jar=
+//   默认:          game root = 本工程上一级; android.jar = SDK 的 android-34(缺失则最新)
 // ---------------------------------------------------------------------------
-def sdkDir = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT') ?: project.findProperty('androidSdk')
-def gameRoot = System.getenv('AOH_GAME_ROOT') ?: project.findProperty('gameRoot') ?: rootDir.parentFile
-// libs\game.jar 优先(历史构建用的就是它);缺失时回退到 <游戏根>/game.jar
+def sdkDir = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT') ?: findProperty('androidSdk')
+def gameRoot = System.getenv('AOH_GAME_ROOT') ?: findProperty('gameRoot') ?: rootDir.parentFile
+
+// libs\game.jar 优先(历史构建用它);缺失时回退 <游戏根>/game.jar
 def libsGameJar = file('libs/game.jar')
 def gameJar = libsGameJar.exists() ? libsGameJar : file("${gameRoot}/game.jar")
 
-def androidJar = project.findProperty('androidJar') as String
-if (!androidJar && sdkDir) {
-    def candidates = [file("${sdkDir}/platforms/android-34/android.jar")]
-    def platforms = file("${sdkDir}/platforms")
-    if (platforms.isDirectory()) {
-        platforms.listFiles()
-                ?.findAll { it.isDirectory() }
-                ?.sort { a, b -> b.name <=> a.name }
-                ?.each { candidates << new File(it, 'android.jar') }
-    }
-    androidJar = candidates.find { it.exists() }?.absolutePath
+def pickFromSdk = { String subDir, String probe ->
+    if (!sdkDir) return null
+    def base = file("${sdkDir}/${subDir}")
+    if (!base.isDirectory()) return null
+    def hit = base.listFiles()
+            ?.findAll { it.isDirectory() && new File(it, probe).exists() }
+            ?.sort { a, b -> b.name <=> a.name }
+    return hit ? new File(hit[0], probe) : null
 }
 
-if (!gameJar.exists()) {
-    logger.warn("[HotPluginLoader] game.jar not found: ${gameJar}")
-    logger.warn("                 set AOH_GAME_ROOT (or -PgameRoot=<game dir>) to the folder that contains game.jar")
-}
-if (!androidJar) {
-    logger.warn("[HotPluginLoader] android.jar not found: set ANDROID_HOME (or -PandroidSdk=<sdk>, -PandroidJar=<jar>)")
+def androidJarProp = findProperty('androidJar') as String
+def androidJar = androidJarProp ? file(androidJarProp)
+        : (sdkDir && file("${sdkDir}/platforms/android-34/android.jar").exists()
+            ? file("${sdkDir}/platforms/android-34/android.jar")
+            : pickFromSdk('platforms', 'android.jar'))
+
+def d8JarProp = findProperty('d8Jar') as String
+def d8Jar = d8JarProp ? file(d8JarProp)
+        : (sdkDir && file("${sdkDir}/build-tools/35.0.0/lib/d8.jar").exists()
+            ? file("${sdkDir}/build-tools/35.0.0/lib/d8.jar")
+            : pickFromSdk('build-tools', 'lib/d8.jar'))
+
+// 出补丁 dex 用的 loader 可执行包(与编译用的是同一坐标,Gradle 缓存复用)
+configurations {
+    loaderCli
 }
 
 dependencies {
     // ---- 公开坐标(自动下载，不进产物) ----
     // Finality loader 运行时：FinalityLogger / luminosity2 注解 / Mixin CallbackInfo 等
     compileOnly 'com.github.Finality-Framework:loader:1.6.0'
+    loaderCli 'com.github.Finality-Framework:loader:1.6.0'
 
     // ---- 仅本地(不可再分发) ----
     // game.jar：游戏本体类(含 libGDX 核心)，与运行时版本一致，勿用 Maven 的 gdx 替代
     compileOnly files(gameJar)
-    if (androidJar) {
+    if (androidJar != null) {
         compileOnly files(androidJar)
     }
 
@@ -73,8 +82,7 @@ dependencies {
 
     // ---- 载荷：内置 D8 转换器，随补丁 dex 发布，必须打进产物 ----
     // 版本与 Android SDK build-tools 35 自带的 D8(8.6.2)对齐
-    // 走阿里云 Google Maven 镜像;若镜像也不可用,改用本机 SDK 的 d8.jar:
-    //   implementation files('libs/d8.jar')
+    // 若镜像不可用，可改成 implementation files('<sdk>/build-tools/<ver>/lib/d8.jar')
     implementation 'com.android.tools:r8:8.6.27'
 }
 
@@ -93,3 +101,97 @@ shadowJar {
     archiveClassifier.set("")
     // 编译期依赖全部为 compileOnly，不会进入产物;这里只保留载荷(R8/D8)
 }
+
+// ---------------------------------------------------------------------------
+// dex 任务：用 loader 的 patch 模式渲染补丁 dex → out/game.dex.zip
+//   gradlew build      = jar + dex（一条命令出全套）
+//   gradlew shadowJar  = 只出 jar
+//   gradlew dex        = 只出 dex（复用已有 jar）
+// ---------------------------------------------------------------------------
+def dexOutDir = file("$projectDir/out")
+def dexWorkDir = file("$buildDir/patch")
+def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+def javaExe = new File(System.getProperty('java.home'), "bin/java" + (isWindows ? '.exe' : ''))
+
+def toForwardSlash = { File f -> f.absolutePath.replace('\\', '/') }
+def relTo = { File baseDir, File target ->
+    try {
+        return baseDir.toPath().toAbsolutePath().normalize()
+                .relativize(target.toPath().toAbsolutePath().normalize())
+                .toString().replace('\\', '/')
+    } catch (Exception ignored) {
+        return toForwardSlash(target)
+    }
+}
+
+tasks.register('dex') {
+    group = 'build'
+    description = 'Render the patch dex with the Finality loader -> out/game.dex.zip'
+    dependsOn tasks.named('shadowJar')
+
+    def pluginJar = tasks.named('shadowJar').flatMap { it.archiveFile }
+    inputs.file(pluginJar)
+    outputs.file(new File(dexOutDir, 'game.dex.zip'))
+
+    doLast {
+        if (!gameJar.exists()) {
+            throw new GradleException("game.jar not found: ${gameJar}\n" +
+                    "  put your own game.jar next to this project, or set AOH_GAME_ROOT / -PgameRoot=<game dir>")
+        }
+        if (androidJar == null || !androidJar.exists()) {
+            throw new GradleException('android.jar not found: set ANDROID_HOME (or -PandroidSdk=<sdk> / -PandroidJar=<jar>)')
+        }
+        if (d8Jar == null || !d8Jar.exists()) {
+            throw new GradleException('d8.jar not found: set ANDROID_HOME / -Pd8Jar=<jar> (any build-tools/lib/d8.jar)')
+        }
+
+        dexWorkDir.mkdirs()
+        dexOutDir.mkdirs()
+
+        def cfgFile = new File(dexWorkDir, 'patch.json')
+        cfgFile.text = """{
+  "gamePath": "${relTo(dexWorkDir, gameJar)}",
+  "d8Path": "${relTo(dexWorkDir, d8Jar)}",
+  "androidLibPath": "${relTo(dexWorkDir, androidJar)}",
+  "plugins": [
+    "${relTo(dexWorkDir, pluginJar.get().asFile)}"
+  ]
+}
+"""
+
+        // loaderCli 可能带传递依赖(asm/mixin 等),只取 loader 本体那个可执行 jar
+        def loaderArtifact = configurations.loaderCli.resolvedConfiguration.resolvedArtifacts.find {
+            it.moduleVersion.id.group == 'com.github.Finality-Framework' && it.moduleVersion.id.name == 'loader'
+        }
+        if (loaderArtifact == null) {
+            throw new GradleException('cannot resolve the Finality loader artifact from JitPack')
+        }
+        def loaderJar = loaderArtifact.file
+        def produced = new File(dexWorkDir, 'game.dex.zip')
+        if (produced.exists()) produced.delete()
+
+        logger.lifecycle("[dex] loader: ${loaderJar.name}")
+        def pb = new ProcessBuilder(javaExe.absolutePath, '-jar', loaderJar.absolutePath,
+                '--launch-mode', 'patch', '--patch-config', cfgFile.absolutePath)
+        pb.directory(dexWorkDir)
+        pb.inheritIO()
+        def proc = pb.start()
+        def code = proc.waitFor()
+        if (code != 0) {
+            throw new GradleException("loader patch mode failed (exit ${code})")
+        }
+        if (!produced.exists()) {
+            throw new GradleException("loader did not produce game.dex.zip (see ${dexWorkDir})")
+        }
+        copy {
+            from produced
+            into dexOutDir
+        }
+        logger.lifecycle("[dex] out/game.dex.zip (${produced.length()} bytes)")
+    }
+}
+
+tasks.named('build') {
+    dependsOn tasks.named('dex')
+}
+

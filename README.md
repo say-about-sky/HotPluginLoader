@@ -4,9 +4,9 @@
 > 扫描 `hotplugins\` 下的 `.dex/.zip/.jar`,运行时加载 / 启停 / 重载,不用重打 APK
 > (安卓端内置 D8,能把 jar 自动转 dex 并生成清单)。
 >
-> **快速开始**:① 一键 `build.bat`(或 `build.ps1`) → ② `build\libs\HotPluginLoader-0.2.0.jar`
-> 与 `out\game.dex.zip` → ③ 桌面把 jar 放 `mods\<mod>\plugins\`;安卓把 dex 合并进 APK。
-> **依赖**(不进版本库):JDK 11+、`game.jar`、`android.jar`、`d8.jar`、`loader-1.6.0.jar`(详见下文「构建」)。
+> **快速开始**:① `set AOH_GAME_ROOT=<游戏目录>`（一次性）→ ② `gradlew build` →
+> ③ 产物 `build\libs\HotPluginLoader-0.2.0.jar` + `out\game.dex.zip`（自行部署）。
+> **依赖**:全部由 Gradle 解析 —— loader 走 JitPack，R8 走 Maven，`game.jar` / `android.jar` 从本机路径取（见下文「构建」）。
 > **许可**:GPL-3.0,见 `LICENSE.TXT`。
 > **隐私**:纯本地运行,不联网、不收集不上报任何数据;日志只写本地 `hotplugins\hotloader.log`。
 > 插件属于第三方代码,请只安装可信来源的插件。
@@ -342,17 +342,16 @@ set JAVA_HOME=<JDK11 路径,如 %JAVA_HOME%>
 gradlew.bat shadowJar
 ```
 
-产物:`build\libs\HotPluginLoader-0.2.0.jar`。
+产物:`build\libs\HotPluginLoader-0.2.0.jar`(只出 jar)、`out\game.dex.zip`(`gradlew dex` / `gradlew build`)。
 
-> **前置依赖**:`game.jar`(游戏本体,含 libGDX,必填)与 `android.jar`(Android SDK)需自备;
-> `loader-1.6.0.jar` 与 `d8.jar` 改由 Maven 坐标提供 —— `com.github.Finality-Framework:loader:1.6.0`
-> (JitPack)与 `com.android.tools:r8:8.6.27`(Google Maven,国内用阿里云镜像);
-> 体积小且可再分发的 `finality-api-0.1.0.jar`、`gdx-android-stubs.jar`(6 个编译桩)已随仓库提供。
-> `libs\`、`build\`、`bin\`、`.gradle\` 均在 `.gitignore` 中排除。
+> **依赖全部由 Gradle 解析（无外部脚本）**：
+> - loader 编译器/可执行包：`com.github.Finality-Framework:loader:1.6.0`（JitPack，自动缓存）
+> - 内置 D8/R8：`com.android.tools:r8:8.6.27`（Google Maven，国内走阿里云镜像）
+> - 随仓库的小件：`libs\finality-api-0.1.0.jar`、`libs\gdx-android-stubs.jar`（6 个编译桩）
+> - 仅本机：`game.jar`（默认取本工程上一级）、`android.jar` + `d8.jar`（从 `ANDROID_HOME` 探测）
 >
-> **一键准备**:`powershell -ExecutionPolicy Bypass -File tools\fetch-libs.ps1`
-> (按 `AOH_GAME_ROOT` 复制 `game.jar`、按 `ANDROID_HOME` 取 `android.jar`;`-FetchLoader` 可额外下载 loader jar 作离线后备)。
-> 详见 `libs\README.md`。
+> 覆盖方式：环境变量 `AOH_GAME_ROOT` / `ANDROID_HOME`（或 `ANDROID_SDK_ROOT`）/ `JAVA_HOME`，
+> 或 `-PgameRoot= -PandroidSdk= -PandroidJar= -Pd8Jar=`。详见 `libs\README.md`。
 
 ## 安装
 
@@ -364,10 +363,11 @@ gradlew.bat shadowJar
   且**必须放进同一批 patch 构建** —— 否则两个补丁各带一份 `PluginsCollection`,先加载的会顶掉另一个(宿主不会被实例化)。
   合并进 APK(补丁 dex 按编号最前置)后宿主自举生效;
   b12 起补丁 ≈2.9MB(b16 实测 `game.dex.zip` 3,005,837 B,内含单 classes.dex ≈7.4MB / 11,539 类,含内置 D8)。
-- **产出补丁 dex**:运行本工程的 `build.bat`(或 `build.ps1`) —— 自动解析游戏根/JDK/SDK、补齐依赖、
-  生成 `PatchBuild\patch.json`(相对 `out\` 的路径,回退绝对路径),产物固定写 **`out\game.dex.zip`**。
-  只要 dex: `build-dex.bat`(= `build.ps1 -DexOnly`,复用已有 jar);只要 jar: `build.ps1 -JarOnly`。
-  游戏根默认取本工程上一级(`AOH_GAME_ROOT` 可覆盖)。**本工程只负责构建，不向游戏目录写任何文件。**
+- **产出补丁 dex**:`gradlew build`(= `shadowJar` + `dex`)一次出齐 jar 与 dex；
+  单跑:`gradlew shadowJar`(只出 jar) / `gradlew dex`(只出 dex,复用已有 jar)；
+  `build.bat` / `build-dex.bat` 只是双击用的 Gradle 包装。
+  dex 任务在 `build\patch\` 里生成临时 `patch.json`(相对路径),产物拷到 **`out\game.dex.zip`**。
+  **本工程只负责构建，不向游戏目录写任何文件。**
 
 ## 插件目录
 

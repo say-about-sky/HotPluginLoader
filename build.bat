@@ -1,11 +1,14 @@
 @echo off
 rem ============================================================
-rem  HotPluginLoader - one-shot build (plugin jar + patch dex)
-rem  See build.ps1 for options; extra args are passed through, e.g.
-rem    build.bat -GameRoot <game dir> -AndroidSdk <sdk>
+rem  HotPluginLoader - full build (plugin jar + patch dex)
+rem  This is only a thin wrapper around Gradle:
+rem      gradlew.bat build       -> build\libs\*.jar + out\game.dex.zip
+rem      gradlew.bat shadowJar   -> jar only
+rem      gradlew.bat dex         -> dex only
+rem  Paths: AOH_GAME_ROOT / ANDROID_HOME / JAVA_HOME (see build.gradle)
 rem ============================================================
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build.ps1" %*
+call "%~dp0gradlew.bat" build %*
 set "RC=%ERRORLEVEL%"
 pause
 exit /b %RC%
