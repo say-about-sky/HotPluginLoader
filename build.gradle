@@ -7,22 +7,75 @@ group = 'com.saysky'
 version = '0.2.0'
 
 repositories {
+    // 国内镜像优先(阿里云):public = Maven Central 聚合,google = Google Maven 镜像(R8/D8)
     maven { url 'https://maven.aliyun.com/repository/public' }
+    maven { url 'https://maven.aliyun.com/repository/google' }
+    // 备用镜像(华为云,同样代理 Google 坐标)
+    maven { url 'https://repo.huaweicloud.com/repository/maven/' }
     mavenCentral()
+    // Finality loader 运行时(GPLv3,由 JitPack 从上游源码构建)
+    // 限定 group,避免其它依赖也去 JitPack 查询(会明显变慢)
+    maven {
+        url 'https://jitpack.io'
+        content { includeGroup 'com.github.Finality-Framework' }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 本地路径：优先环境变量，其次 -P 参数，最后自动推断。
+//   game.jar    —— 游戏本体类，不可再分发，需自备(默认取本工程上一级)
+//   android.jar —— Android 平台类，从本机 SDK 读取
+// ---------------------------------------------------------------------------
+def sdkDir = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT') ?: project.findProperty('androidSdk')
+def gameRoot = System.getenv('AOH_GAME_ROOT') ?: project.findProperty('gameRoot') ?: rootDir.parentFile
+// libs\game.jar 优先(历史构建用的就是它);缺失时回退到 <游戏根>/game.jar
+def libsGameJar = file('libs/game.jar')
+def gameJar = libsGameJar.exists() ? libsGameJar : file("${gameRoot}/game.jar")
+
+def androidJar = project.findProperty('androidJar') as String
+if (!androidJar && sdkDir) {
+    def candidates = [file("${sdkDir}/platforms/android-34/android.jar")]
+    def platforms = file("${sdkDir}/platforms")
+    if (platforms.isDirectory()) {
+        platforms.listFiles()
+                ?.findAll { it.isDirectory() }
+                ?.sort { a, b -> b.name <=> a.name }
+                ?.each { candidates << new File(it, 'android.jar') }
+    }
+    androidJar = candidates.find { it.exists() }?.absolutePath
+}
+
+if (!gameJar.exists()) {
+    logger.warn("[HotPluginLoader] game.jar not found: ${gameJar}")
+    logger.warn("                 set AOH_GAME_ROOT (or -PgameRoot=<game dir>) to the folder that contains game.jar")
+}
+if (!androidJar) {
+    logger.warn("[HotPluginLoader] android.jar not found: set ANDROID_HOME (or -PandroidSdk=<sdk>, -PandroidJar=<jar>)")
 }
 
 dependencies {
-    // libs 目录:
-    //   loader-1.6.0.jar        —— 框架运行时(FinalityLogger、luminosity2 注解、CallbackInfo)
-    //   game.jar                —— 游戏本体类(菜单/MainMenu/按钮等)
-    //   finality-api-0.1.0.jar  —— Finality API(Plugin 基类)
-    //   android.jar / gdx-android-stubs.jar —— 编译期平台类(见 .tools\stubs)
-    // 使用 shadow 配置,避免 shadowJar 将以上 jar 打包进插件产物。
-    shadow fileTree(dir: 'libs', includes: ['*.jar'], excludes: ['d8.jar'])
+    // ---- 公开坐标(自动下载，不进产物) ----
+    // Finality loader 运行时：FinalityLogger / luminosity2 注解 / Mixin CallbackInfo 等
+    compileOnly 'com.github.Finality-Framework:loader:1.6.0'
 
-    // 内置 D8(b12:转换器与加载器合并为一个库)—— 载荷,必须打进产物,
-    // 随补丁 dex(game.dex.zip)一起发布;此后不再需要单独安装「D8 转换器」。
-    implementation files('libs/d8.jar')
+    // ---- 仅本地(不可再分发) ----
+    // game.jar：游戏本体类(含 libGDX 核心)，与运行时版本一致，勿用 Maven 的 gdx 替代
+    compileOnly files(gameJar)
+    if (androidJar) {
+        compileOnly files(androidJar)
+    }
+
+    // ---- 小体积、可再分发，随仓库提供 ----
+    // 编译桩：androidx ContextCompat + gdx Android 后端 + team.rainfall.*(6 个空桩类)
+    compileOnly files('libs/gdx-android-stubs.jar')
+    // Finality API(Plugin 基类)
+    compileOnly files('libs/finality-api-0.1.0.jar')
+
+    // ---- 载荷：内置 D8 转换器，随补丁 dex 发布，必须打进产物 ----
+    // 版本与 Android SDK build-tools 35 自带的 D8(8.6.2)对齐
+    // 走阿里云 Google Maven 镜像;若镜像也不可用,改用本机 SDK 的 d8.jar:
+    //   implementation files('libs/d8.jar')
+    implementation 'com.android.tools:r8:8.6.27'
 }
 
 java {
@@ -36,4 +89,7 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 jar { enabled = false }
-shadowJar { archiveClassifier.set("") }
+shadowJar {
+    archiveClassifier.set("")
+    // 编译期依赖全部为 compileOnly，不会进入产物;这里只保留载荷(R8/D8)
+}

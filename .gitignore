@@ -5,11 +5,16 @@ build/
 bin/
 out/
 .gradle/
+# generated patch.json (machine-specific, written by build.ps1)
+PatchBuild/
 
 # compiled / packaged artifacts
 *.class
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+# small, redistributable compile-time deps shipped with the repo (see libs/README.md)
+!libs/finality-api-0.1.0.jar
+!libs/gdx-android-stubs.jar
 
 # IDE / local environment
 .idea/
