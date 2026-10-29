@@ -353,6 +353,25 @@ gradlew.bat shadowJar
 > 覆盖方式：环境变量 `AOH_GAME_ROOT` / `ANDROID_HOME`（或 `ANDROID_SDK_ROOT`）/ `JAVA_HOME`，
 > 或 `-PgameRoot= -PandroidSdk= -PandroidJar= -Pd8Jar=`。详见 `libs\README.md`。
 
+### 构建加速（国内网络）
+
+- 镜像顺序写在 `settings.gradle` 的 `pluginManagement` + `build.gradle` 的 `repositories` 里：
+  阿里云 `gradle-plugin` → 阿里云 `public` → 阿里云 `google` → 华为云 → `mavenCentral()`（兜底）→ JitPack（仅 loader 本体）。
+  实测：阿里云 gdx 9.3 MB/s、华为 5.6 MB/s、Maven Central 0.2 MB/s；Gradle Plugin Portal 单个 POM 1.9 s，阿里云 0.14 s。
+- `gradle.properties` 已开 `daemon / parallel / caching / vfs.watch`、2 GB 堆与 HTTP 超时；增量构建通常 1~4 s。
+- Gradle 发行包走腾讯云镜像（`mirrors.cloud.tencent.com`，实测 3.7 MB/s）。
+- `dex` 任务的 loader 输出会写 `build\dex\loader.log`（不再直连控制台），后台/管道环境下不会因缓冲区写满而“卡死”。
+
+### IntelliJ IDEA 运行/调试配置
+
+`.run\` 是 IDEA 共享配置目录，打开工程后直接出现在运行配置下拉框：
+
+| 配置 | 类型 | 作用 |
+|---|---|---|
+| 构建 dex（gradle dex） | Gradle | 跑 `dex` 任务（自动先 `shadowJar`） |
+| 调试游戏（桌面 JDWP 5005） | Remote JVM Debug | 先 `StartFinality-jdwp.bat` 启动游戏，再点 Debug 即可在源码断点 |
+| 调试游戏（安卓 adb 8700） | Remote JVM Debug | 手机：`adb forward tcp:8700 jdwp:<pid>` 后 Debug（详见 `热插件调试指南_JDWP.md`） |
+
 ## 安装
 
 - **桌面(快速调试)**:把 jar 放进 `mods\HotPluginLoader\plugins\`(配 `mod.txt`),双击 `StartFinality.bat`;

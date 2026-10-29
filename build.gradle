@@ -174,11 +174,18 @@ tasks.register('dex') {
         def pb = new ProcessBuilder(javaExe.absolutePath, '-jar', loaderJar.absolutePath,
                 '--launch-mode', 'patch', '--patch-config', cfgFile.absolutePath)
         pb.directory(dexWorkDir)
-        pb.inheritIO()
+        // 不用 inheritIO：输出重定向到文件，避免终端/后台任务不消费导致管道写满、“构建卡死”
+        def logFile = new File(project.layout.buildDirectory.get().asFile, 'dex/loader.log')
+        logFile.parentFile.mkdirs()
+        pb.redirectErrorStream(true)
+        pb.redirectOutput(ProcessBuilder.Redirect.to(logFile))
+        logger.lifecycle("[dex] log: ${logFile}")
         def proc = pb.start()
         def code = proc.waitFor()
+        def logLines = logFile.exists() ? logFile.readLines('UTF-8') : []
+        logLines.takeRight(30).each { logger.lifecycle("  | ${it}") }
         if (code != 0) {
-            throw new GradleException("loader patch mode failed (exit ${code})")
+            throw new GradleException("loader patch mode failed (exit ${code})；完整日志: ${logFile}")
         }
         if (!produced.exists()) {
             throw new GradleException("loader did not produce game.dex.zip (see ${dexWorkDir})")
