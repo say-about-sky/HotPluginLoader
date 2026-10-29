@@ -47,8 +47,9 @@ Step "game root: $GameRoot"
 if (-not (Test-Path -LiteralPath $GameRoot)) { Fail "game root not found: $GameRoot (use -GameRoot or AOH_GAME_ROOT)" }
 
 if ([string]::IsNullOrEmpty($GameJar)) {
-    $cand = @((Join-Path $GameRoot "game.jar"), (Join-Path $libs "game.jar")) | Where-Object { Test-Path -LiteralPath $_ }
-    if ($cand.Count -gt 0) { $GameJar = $cand[0] }
+    foreach ($p in @((Join-Path $GameRoot "game.jar"), (Join-Path $libs "game.jar"))) {
+        if (Test-Path -LiteralPath $p) { $GameJar = $p; break }
+    }
 }
 if ([string]::IsNullOrEmpty($GameJar) -or -not (Test-Path -LiteralPath $GameJar)) {
     Fail "game.jar not found. Put your own game.jar into '$GameRoot' (or pass -GameJar <path>)."
