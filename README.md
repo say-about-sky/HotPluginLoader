@@ -362,12 +362,12 @@ gradlew.bat shadowJar
   (`PatchBuild\patch.json` 现在只列 `HotPluginLoader` 一个 jar)。
   如仍需同时启用它:把 `LoaderSettings\LongPressMoveArmy\build\libs\LongPressMoveArmy-*.jar` 加回 `patch.json` 的 `plugins`,
   且**必须放进同一批 patch 构建** —— 否则两个补丁各带一份 `PluginsCollection`,先加载的会顶掉另一个(宿主不会被实例化)。
-  合并进 APK(补丁 dex 按编号最前置;**merge-dex.ps1 支持多 dex 补丁,自动整体前置**)后宿主自举生效;
+  合并进 APK(补丁 dex 按编号最前置)后宿主自举生效;
   b12 起补丁 ≈2.9MB(b16 实测 `game.dex.zip` 3,005,837 B,内含单 classes.dex ≈7.4MB / 11,539 类,含内置 D8)。
 - **产出补丁 dex**:运行本工程的 `build.bat`(或 `build.ps1`) —— 自动解析游戏根/JDK/SDK、补齐依赖、
   生成 `PatchBuild\patch.json`(相对 `out\` 的路径,回退绝对路径),产物固定写 **`out\game.dex.zip`**。
   只要 dex: `build-dex.bat`(= `build.ps1 -DexOnly`,复用已有 jar);只要 jar: `build.ps1 -JarOnly`。
-  游戏根默认取本工程上一级(`AOH_GAME_ROOT` 可覆盖);`merge-dex.ps1` 默认就读 `out\game.dex.zip`。
+  游戏根默认取本工程上一级(`AOH_GAME_ROOT` 可覆盖)。**本工程只负责构建，不向游戏目录写任何文件。**
 
 ## 插件目录
 

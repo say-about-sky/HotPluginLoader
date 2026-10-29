@@ -218,5 +218,4 @@ if (-not (Test-Path -LiteralPath $dexZip)) { Fail "game.dex.zip was not generate
 Step "done"
 Write-Host ("[OK] jar : " + $jarPath)
 Write-Host ("[OK] dex : " + $dexZip + "  (" + (Get-Item -LiteralPath $dexZip).Length + " bytes)")
-Write-Host "Next: merge into the APK with ..\merge-dex.ps1"
 exit 0
