@@ -147,7 +147,9 @@ if (-not $DexOnly) {
     Step "gradlew shadowJar"
     if ($Clean) { & (Join-Path $proj "gradlew.bat") clean --console=plain | Out-Host }
     & (Join-Path $proj "gradlew.bat") shadowJar --console=plain
-    if ($LASTEXITCODE -ne 0) { Fail "gradle build failed" }
+    if ($LASTEXITCODE -ne 0) {
+        Fail "gradle build failed (if another Gradle build/daemon is running, run: gradlew.bat --stop, then retry)"
+    }
 }
 $jarPath = @(Get-ChildItem -LiteralPath (Join-Path $proj "build\libs") -Filter "*.jar" -ErrorAction SilentlyContinue |
              Sort-Object LastWriteTime -Descending | Select-Object -First 1)
