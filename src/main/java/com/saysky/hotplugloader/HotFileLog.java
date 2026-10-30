@@ -20,6 +20,11 @@ public final class HotFileLog {
      *  修复「启动早期的启动器/冷注入日志被首帧 init 清掉」)。 */
     private static volatile boolean sessionPrepared = false;
 
+    /** 错误去重(b54):同一条错误 5s 内只写一次堆栈。 */
+    private static String lastErrMessage;
+    private static long lastErrAt;
+    private static int lastErrRepeat;
+
     private HotFileLog() {
     }
 
@@ -49,6 +54,11 @@ public final class HotFileLog {
         if (!LoaderConfig.logEnabled()) {
             return;
         }
+        write(message);
+    }
+
+    /** 无条件写文件(不做开关判断,由调用方决定是否写)。 */
+    private static synchronized void write(String message) {
         try {
             FileWriter writer = new FileWriter(file(), true);
             try {
@@ -61,39 +71,51 @@ public final class HotFileLog {
     }
 
     /**
-     * 错误日志(b19):消息 + 堆栈(截断:自身 12 帧 + 2 层 cause 各 6 帧)。
-     * 安卓上 hotloader.log 是唯一可靠通道,只写 t.toString() 定位不了问题。
+     * 错误日志:消息 + <b>完整</b> Java 堆栈(所有帧 / 所有 cause / suppressed,不截断)。
+     *
+     * <p>仍受「开启日志」总开关控制(与其它日志一致)。
+     * 旧版截断成「自身 12 帧 + 2 层 cause 各 6 帧」,排查 D8/R8 这类嵌套异常等于没用。</p>
      */
     public static synchronized void logError(String message, Throwable t) {
         if (!LoaderConfig.logEnabled()) {
             return;
         }
-        StringBuilder sb = new StringBuilder("E ").append(message);
-        if (t != null) {
-            sb.append("\n    ").append(t);
-            appendFrames(sb, t.getStackTrace(), 12);
-            Throwable cause = t.getCause();
-            int guard = 0;
-            while (cause != null && cause != t && guard++ < 2) {
-                sb.append("\n    caused by: ").append(cause);
-                appendFrames(sb, cause.getStackTrace(), 6);
-                Throwable next = cause.getCause();
-                cause = next == cause ? null : next;
-            }
-        }
-        log(sb.toString());
-    }
-
-    private static void appendFrames(StringBuilder sb, StackTraceElement[] st, int max) {
-        if (st == null) {
+        long now = System.currentTimeMillis();
+        // 同一条错误 5 秒内重复(例如每帧 tick 失败)只记一行,避免日志被刷爆
+        if (message != null && message.equals(lastErrMessage) && now - lastErrAt < 5000L) {
+            lastErrRepeat++;
+            lastErrAt = now;
+            write("E " + message + "  (重复第 " + lastErrRepeat + " 次,堆栈省略)");
             return;
         }
-        int n = Math.min(st.length, max);
-        for (int i = 0; i < n; i++) {
-            sb.append("\n      at ").append(st[i]);
+        lastErrMessage = message;
+        lastErrAt = now;
+        lastErrRepeat = 0;
+        StringBuilder sb = new StringBuilder("E ").append(message);
+        appendFull(sb, t, "    ", new java.util.HashSet<Throwable>());
+        write(sb.toString());
+    }
+
+    private static void appendFull(StringBuilder sb, Throwable t, String indent, java.util.Set<Throwable> seen) {
+        if (t == null || !seen.add(t)) {
+            return;
         }
-        if (st.length > n) {
-            sb.append("\n      ... (").append(st.length - n).append(" more)");
+        sb.append("\n").append(indent).append(t);
+        StackTraceElement[] st = t.getStackTrace();
+        if (st != null) {
+            for (StackTraceElement e : st) {
+                sb.append("\n").append(indent).append("  at ").append(e);
+            }
+        }
+        Throwable[] suppressed = t.getSuppressed();
+        if (suppressed != null) {
+            for (Throwable s : suppressed) {
+                appendFull(sb, s, indent + "Suppressed: ", seen);
+            }
+        }
+        Throwable cause = t.getCause();
+        if (cause != null && cause != t) {
+            appendFull(sb, cause, indent + "Caused by: ", seen);
         }
     }
 }

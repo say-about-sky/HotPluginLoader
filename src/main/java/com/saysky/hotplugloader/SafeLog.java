@@ -16,6 +16,7 @@ public final class SafeLog {
     private SafeLog() {
     }
 
+    /** 错误日志:受「开启日志」开关控制;写 {@code hotloader.log} 时带完整堆栈,logcat 同步一份。 */
     public static void e(String message, Throwable t) {
         if (!LoaderConfig.logEnabled()) {
             return;
@@ -24,7 +25,7 @@ public final class SafeLog {
             FinalityLogger.error(message, t);
         } catch (Throwable ignored) {
         }
-        // b19:热文件日志带堆栈(截断),安卓上这是唯一可靠通道
+        // b54:完整堆栈(原来截断成 12 帧 + 2 层 cause 各 6 帧,嵌套异常基本无法定位)
         HotFileLog.logError(message, t);
     }
 

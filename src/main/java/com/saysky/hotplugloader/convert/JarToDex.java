@@ -81,6 +81,29 @@ public final class JarToDex {
         }
     }
 
+    /** 完整异常描述:类名 + 消息,沿 cause 链展开(最多 8 层,防自引用死循环)。 */
+    static String describe(Throwable t) {
+        StringBuilder sb = new StringBuilder();
+        java.util.Set<Throwable> seen = new java.util.HashSet<Throwable>();
+        Throwable c = t;
+        while (c != null && seen.add(c)) {
+            if (seen.size() > 8) {
+                sb.append(" <- ...");
+                break;
+            }
+            if (sb.length() > 0) {
+                sb.append(" <- ");
+            }
+            sb.append(c.getClass().getName());
+            String m = c.getMessage();
+            if (m != null && m.length() > 0) {
+                sb.append(": ").append(m);
+            }
+            c = (c.getCause() == c ? null : c.getCause());
+        }
+        return sb.toString();
+    }
+
     /**
      * d8 转换 jar,把 classes*.dex 留在 {@code workDir/dex} 里(按数字序返回,调用方负责清理)。
      * b16:用于「单 dex 直出」链路(jar → {@code <同名>.dex} 直接落 dex/ 目录,不再打 zip)。
@@ -102,7 +125,9 @@ public final class JarToDex {
         } catch (Throwable t) {
             String extra = diag.summary();
             deleteRecursively(dexDir);
-            throw new Exception("D8 转换失败: " + t.getMessage() + (extra.length() > 0 ? " [" + extra + "]" : ""), t);
+            // 消息里带上完整 cause 链(CompilationFailedException -> NPE …),一行也能定位
+            throw new Exception("D8 转换失败: " + describe(t)
+                    + (extra.length() > 0 ? " [" + extra + "]" : ""), t);
         }
         File[] files = dexDir.listFiles();
         List<File> dexes = new ArrayList<File>();
