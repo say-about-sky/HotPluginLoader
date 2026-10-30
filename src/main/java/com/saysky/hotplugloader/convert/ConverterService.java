@@ -118,7 +118,7 @@ public final class ConverterService {
                     FAILED.remove(f.getAbsolutePath());
                 } catch (Throwable t) {
                     FAILED.put(f.getAbsolutePath(), Long.valueOf(f.lastModified()));
-                    SafeLog.e(TAG + ": convert failed: " + f.getName() + " -> " + t, null);
+                    SafeLog.e(TAG + ": convert failed: " + f.getName() + " -> " + t, t);
                     toast("转换失败: " + f.getName() + "(详情见日志)");
                 }
             }
